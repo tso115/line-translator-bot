@@ -10,7 +10,7 @@ from linebot.v3.messaging import (
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
-from openai import OpenAI
+import requests
 import os
 
 app = Flask(__name__)
@@ -19,10 +19,8 @@ configuration = Configuration(
     access_token=os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 )
 
-handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
-
-client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY")
+handler = WebhookHandler(
+    os.getenv("LINE_CHANNEL_SECRET")
 )
 
 @app.route("/webhook", methods=["POST"])
@@ -40,36 +38,35 @@ def webhook():
 
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
-    user_text = event.message.text
+    user_text = event.message.text.strip()
 
-    prompt = f"""
-你是一個專業雙向翻譯員。
+    if not user_text:
+        return
 
-規則：
-1. 英文翻譯成繁體中文
-2. 中文翻譯成英文
-3. 其他語言不要翻譯
-4. 保留專有名詞、型號、品牌名稱
-5. 只輸出翻譯結果
-6. 如果不需要翻譯，直接原樣輸出
+    # 判斷語言
+    if any('\u4e00' <= c <= '\u9fff' for c in user_text):
+        source_lang = "zh"
+        target_lang = "en"
+    elif user_text.isascii():
+        source_lang = "en"
+        target_lang = "zh"
+    else:
+        return
 
-內容：
-{user_text}
-"""
+    try:
+        response = requests.post(
+            "https://libretranslate.com/translate",
+            json={
+                "q": user_text,
+                "source": source_lang,
+                "target": target_lang,
+                "format": "text"
+            },
+            timeout=10
+        )
 
-    response = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
-    )
+        translated = response.json()["translatedText"]
 
-    translated = response.choices[0].message.content.strip()
-
-    if translated != user_text:
         with ApiClient(configuration) as api_client:
             line_bot_api = MessagingApi(api_client)
 
@@ -82,5 +79,11 @@ def handle_message(event):
                 )
             )
 
+    except Exception as e:
+        print("Translation Error:", e)
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 5000))
+    )

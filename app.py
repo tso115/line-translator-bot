@@ -23,6 +23,8 @@ handler = WebhookHandler(
     os.getenv("LINE_CHANNEL_SECRET")
 )
 
+DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     signature = request.headers["X-Line-Signature"]
@@ -43,24 +45,24 @@ def handle_message(event):
     if not user_text:
         return
 
-    # 判斷語言
+    # 中文 → 英文
     if any('\u4e00' <= c <= '\u9fff' for c in user_text):
-        source_lang = "zh"
-        target_lang = "en"
+        target_lang = "EN"
+
+    # 英文 → 中文
     elif user_text.isascii():
-        source_lang = "en"
-        target_lang = "zh"
+        target_lang = "ZH"
+
     else:
         return
 
     try:
         response = requests.post(
-            "https://translate.argosopentech.com/translate",
-            json={
-                "q": user_text,
-                "source": source_lang,
-                "target": target_lang,
-                "format": "text"
+            "https://api-free.deepl.com/v2/translate",
+            data={
+                "auth_key": DEEPL_API_KEY,
+                "text": user_text,
+                "target_lang": target_lang
             },
             timeout=10
         )
@@ -69,10 +71,7 @@ def handle_message(event):
 
         print(data)
 
-        translated = data.get("translatedText")
-
-        if not translated:
-            return
+        translated = data["translations"][0]["text"]
 
         with ApiClient(configuration) as api_client:
             line_bot_api = MessagingApi(api_client)

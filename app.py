@@ -55,7 +55,7 @@ def handle_message(event):
 
     try:
         response = requests.post(
-            "https://libretranslate.com/translate",
+            "https://translate.argosopentech.com/translate",
             json={
                 "q": user_text,
                 "source": source_lang,
@@ -65,7 +65,14 @@ def handle_message(event):
             timeout=10
         )
 
-        translated = response.json()["translatedText"]
+        data = response.json()
+
+        print(data)
+
+        translated = data.get("translatedText")
+
+        if not translated:
+            return
 
         with ApiClient(configuration) as api_client:
             line_bot_api = MessagingApi(api_client)

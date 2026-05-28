@@ -1,30 +1,44 @@
 from flask import Flask, request
-from linebot import LineBotApi, WebhookHandler
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
-from linebot.exceptions import InvalidSignatureError
+
+from linebot.v3 import WebhookHandler
+from linebot.v3.messaging import (
+    Configuration,
+    ApiClient,
+    MessagingApi,
+    ReplyMessageRequest,
+    TextMessage
+)
+from linebot.v3.webhooks import MessageEvent, TextMessageContent
+
 from openai import OpenAI
 import os
 
 app = Flask(__name__)
 
-line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
+configuration = Configuration(
+    access_token=os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
+)
+
 handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY")
+)
 
-@app.route("/webhook", methods=['POST'])
+@app.route("/webhook", methods=["POST"])
 def webhook():
-    signature = request.headers['X-Line-Signature']
+    signature = request.headers["X-Line-Signature"]
     body = request.get_data(as_text=True)
 
     try:
         handler.handle(body, signature)
-    except InvalidSignatureError:
-        return 'Invalid signature', 400
+    except Exception as e:
+        print("Webhook Error:", e)
+        return "Error", 400
 
-    return 'OK'
+    return "OK"
 
-@handler.add(MessageEvent, message=TextMessage)
+@handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
     user_text = event.message.text
 
@@ -46,17 +60,28 @@ def handle_message(event):
     response = client.chat.completions.create(
         model="gpt-4.1-mini",
         messages=[
-            {"role": "user", "content": prompt}
+            {
+                "role": "user",
+                "content": prompt
+            }
         ]
     )
 
     translated = response.choices[0].message.content.strip()
 
     if translated != user_text:
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=translated)
-        )
+        with ApiClient(configuration) as api_client:
+            line_bot_api = MessagingApi(api_client)
+
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[
+                        TextMessage(text=translated)
+                    ]
+                )
+            )
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+```
